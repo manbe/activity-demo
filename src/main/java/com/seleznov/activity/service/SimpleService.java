@@ -9,10 +9,14 @@ import java.util.Date;
 @Service
 public class SimpleService implements JavaDelegate {
     @Override
-    public void execute(DelegateExecution execution) throws Exception {
+    public void execute(DelegateExecution execution) {
+        Date currentTime = new Date(System.currentTimeMillis());
         System.out.println("===============");
-        System.out.println("source=" + execution.getVariable("source") + " time=" + execution.getVariable("time"));
-        execution.setVariable("time", new Date(System.currentTimeMillis()));
+        System.out.println("source=" + execution.getVariable("source")
+                + " previousTime=" + execution.getVariable("time")
+                + " currentTime=" + currentTime);
+
+        execution.setVariable("time", currentTime);
         execution.setVariable("source", execution.getCurrentActivityId());
     }
 }

@@ -1,20 +1,17 @@
 package com.seleznov.activity.controller;
 
 import com.seleznov.activity.service.SimpleService;
+import org.activiti.bpmn.model.*;
+import org.activiti.bpmn.model.Process;
 import org.activiti.engine.RepositoryService;
 import org.activiti.engine.RuntimeService;
-import org.activiti.engine.impl.pvm.ProcessDefinitionBuilder;
-import org.activiti.engine.impl.pvm.PvmProcessDefinition;
-import org.activiti.engine.impl.pvm.PvmProcessInstance;
-import org.activiti.engine.impl.pvm.PvmTransition;
-import org.activiti.engine.impl.pvm.delegate.ActivityBehavior;
-import org.activiti.engine.impl.pvm.delegate.ActivityExecution;
+import org.activiti.engine.repository.Deployment;
+import org.activiti.engine.repository.ProcessDefinition;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Date;
-import java.util.List;
+import java.util.Collections;
 
 @RestController("demo/activiti")
 public class ActivitiController {
@@ -28,51 +25,86 @@ public class ActivitiController {
     @Autowired
     private RepositoryService repositoryService;
 
-    @PostMapping("/start-flow")
+    @PostMapping("/save-flow")
     public void startFlow() {
+        BpmnModel model = createModel();
+        Deployment deployment = repositoryService.createDeployment()
+                .name("demo deployment")
+                .addBpmnModel("dynamic-model.bpmn", model)
+                .deploy();
+        ProcessDefinition processDefinition = repositoryService.createProcessDefinitionQuery()
+                .deploymentId(deployment.getId())
+                .singleResult();
 
-        ProcessDefinitionBuilder processDefinitionBuilder = new ProcessDefinitionBuilder("offlineJourney");
-        PvmProcessDefinition pvmProcessDefinition = processDefinitionBuilder
-                .createActivity("start")
-                .initial()
-                .behavior((ActivityBehavior) execution -> {
-                    System.out.println("Start");
-                    execution.setVariable("source", "start");
-                    execution.setVariable("time", new Date(System.currentTimeMillis()));
-                    moveNext(execution);
-                })
-                .transition("Day1")
-                .endActivity()
-                .createActivity("Day1")
-                .behavior((ActivityBehavior) execution -> {
-                    simpleService.execute(execution);
-                    moveNext(execution);
-
-
-                })
-                .transition("Day2")
-                .endActivity()
-                .createActivity("Day2")
-                .behavior((ActivityBehavior) execution -> {
-                    simpleService.execute(execution);
-                })
-                .endTransition()
-                .endActivity()
-                .buildProcessDefinition();
-
-        PvmProcessInstance processInstance = pvmProcessDefinition.createProcessInstance();
-        processInstance.start();
-
+        runtimeService.startProcessInstanceById(processDefinition.getId());
     }
 
-    private void moveNext(ActivityExecution execution) {
-        List<PvmTransition> outgoingTransitions = execution.getActivity().getOutgoingTransitions();
-        if(outgoingTransitions.isEmpty()) {
-            execution.end();
-        } else {
-            execution.take(outgoingTransitions.get(0));
-        }
+    private BpmnModel createModel() {
+        BpmnModel model = new BpmnModel();
+
+        Process process = new Process();
+        process.setId("demo_flow");
+        model.addProcess(process);
+
+        process.addFlowElement(createStartEvent());
+        process.addFlowElement(createServiceTask("task1", "task1name", "inapp"));
+        process.addFlowElement(createServiceTask("task2", "task2name", "bonus"));
+        process.addFlowElement(createEndEvent());
+        process.addFlowElement(createTimerEvent("timer1"));
+
+        process.addFlowElement(createSequenceFlow("start", "task1"));
+        process.addFlowElement(createSequenceFlow("task1", "timer1"));
+        process.addFlowElement(createSequenceFlow("timer1", "task2"));
+        process.addFlowElement(createSequenceFlow("task2", "end"));
+
+        return model;
     }
+
+
+
+    private StartEvent createStartEvent() {
+        StartEvent startEvent = new StartEvent();
+        startEvent.setId("start");
+        return startEvent;
+    }
+
+    protected ServiceTask createServiceTask(String id, String name, String type) {
+        ServiceTask serviceTask = new ServiceTask();
+        serviceTask.setName(name);
+        serviceTask.setId(id);
+        serviceTask.setImplementationType(ImplementationType.IMPLEMENTATION_TYPE_DELEGATEEXPRESSION);
+        serviceTask.setImplementation("${taskResolver}");
+        CustomProperty customProperty = new CustomProperty();
+        customProperty.setName("type");
+        customProperty.setSimpleValue(type);
+        serviceTask.setCustomProperties(Collections.singletonList(customProperty));
+        return serviceTask;
+    }
+
+    private EndEvent createEndEvent() {
+        EndEvent endEvent = new EndEvent();
+        endEvent.setId("end");
+        return endEvent;
+    }
+
+    private SequenceFlow createSequenceFlow(String from, String to) {
+        SequenceFlow flow = new SequenceFlow();
+        flow.setSourceRef(from);
+        flow.setTargetRef(to);
+        return flow;
+    }
+
+    private IntermediateCatchEvent createTimerEvent(String id) {
+        IntermediateCatchEvent timerEvent = new IntermediateCatchEvent();
+        timerEvent.setId(id);
+        timerEvent.setAsynchronous(false);
+        TimerEventDefinition timerEventDefinition = new TimerEventDefinition();
+        timerEventDefinition.setTimeDuration("PT5HZ!");
+        timerEvent.addEventDefinition(timerEventDefinition);
+        return timerEvent;
+    }
+
+
 
 
 }
